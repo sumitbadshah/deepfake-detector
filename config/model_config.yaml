@@ -1,0 +1,44 @@
+model:
+  image:
+    architecture: densenet121
+    input_size: 224
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+    weights_path: weights/densenet_deepfake.pth
+    ensemble_weights:
+      densenet: 0.60
+      noise: 0.15
+      compression: 0.10
+      ela: 0.15
+
+  video:
+    convnext_model: convnext_base
+    swin_model: swin_base_patch4_window7_224
+    weights:
+      convnext: weights/convnext_base.pth
+      swin: weights/swin_base.pth
+      autoencoder: weights/autoencoder_ed.pth
+      vae: weights/vae_pathway.pth
+    ensemble_weights:
+      autoencoder_ed: 0.45
+      vae_pathway: 0.35
+      temporal: 0.20
+    frame_count: 20
+    face_size: 224
+
+inference:
+  seed: 42
+  device: cpu
+  max_memory_gb: 4.0
+  batch_size: 8
+
+ela:
+  quality: 90
+  scale: 15
+
+noise:
+  block_size: 8
+
+performance:
+  image_timeout: 10
+  video_timeout: 60

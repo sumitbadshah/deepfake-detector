@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepFake Detector — AI Forensics</title>
+<style>
+:root {
+  --bg-primary:    #0A0F1E;
+  --bg-secondary:  #141A28;
+  --bg-tertiary:   #1E2434;
+  --accent-cyan:   #00E5FF;
+  --accent-purple: #7B2EDA;
+  --real:          #00C48C;
+  --fake:          #FF2E7A;
+  --uncertain:     #FFAA00;
+  --text:          #FFFFFF;
+  --text-secondary:#94A3B8;
+  --text-muted:    #64748B;
+  --border:        #2A3142;
+  --border-focus:  #3E4555;
+  --gradient-real: linear-gradient(135deg,#0A1F1A 0%,#0A0F1E 100%);
+  --gradient-fake: linear-gradient(135deg,#1F0A1A 0%,#0A0F1E 100%);
+  --gradient-uncertain: linear-gradient(135deg,#1F1A0A 0%,#0A0F1E 100%);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg-primary);color:var(--text);min-height:100vh;overflow-x:hidden;}
+
+/* Animated background orbs */
+body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%;
+  background:radial-gradient(ellipse at 20% 20%,rgba(0,229,255,0.04) 0%,transparent 50%),
+             radial-gradient(ellipse at 80% 80%,rgba(123,46,218,0.04) 0%,transparent 50%);
+  pointer-events:none;z-index:0;}
+
+.container{max-width:1000px;margin:0 auto;padding:0 24px;position:relative;z-index:1;}
+
+/* ── Header ── */
+header{padding:28px 0 20px;border-bottom:1px solid var(--border);margin-bottom:28px;}
+.header-inner{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;}
+.logo{display:flex;align-items:center;gap:14px;}
+.logo-icon{width:46px;height:46px;background:linear-gradient(135deg,var(--accent-cyan),var(--accent-purple));
+  border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:22px;
+  box-shadow:0 0 24px rgba(0,229,255,0.2);}
+.logo-text h1{font-size:1.4rem;font-weight:700;letter-spacing:-0.3px;}
+.logo-text h1 span{color:var(--accent-cyan);}
+.logo-text p{color:var(--text-muted);font-size:0.78rem;margin-top:2px;}
+
+/* Nav tabs */
+.nav{display:flex;gap:6px;}
+.tab{padding:7px 18px;border-radius:100px;font-size:0.82rem;font-weight:600;cursor:pointer;
+  border:1px solid var(--border);background:transparent;color:var(--text-secondary);transition:all .2s;}
+.tab:hover{border-color:var(--accent-cyan);color:var(--accent-cyan);}
+.tab.active{background:var(--accent-cyan);color:#0A0F1E;border-color:var(--accent-cyan);}
+
+/* ── Main grid: left panel + right result ── */
+.main-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;}
+@media(max-width:700px){.main-grid{grid-template-columns:1fr;}}
+
+/* ── Upload Panel ── */
+.panel{background:var(--bg-secondary);border:1px solid var(--border);border-radius:20px;padding:24px;}
+.panel-title{font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;
+  color:var(--text-muted);margin-bottom:16px;}
+
+.dropzone{border:2px dashed var(--border);border-radius:16px;padding:40px 20px;text-align:center;
+  cursor:pointer;transition:all .25s;position:relative;background:var(--bg-tertiary);}
+.dropzone:hover,.dropzone.drag-over{border-color:var(--accent-cyan);background:rgba(0,229,255,0.04);}
+.dropzone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
+.dz-icon{font-size:2.5rem;margin-bottom:12px;}
+.dz-title{font-size:0.95rem;font-weight:600;margin-bottom:6px;}
+.dz-sub{font-size:0.78rem;color:var(--text-muted);}
+.dz-types{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:14px;}
+.dz-badge{font-size:0.7rem;padding:3px 10px;border-radius:100px;background:var(--bg-primary);
+  border:1px solid var(--border);color:var(--text-muted);}
+
+/* ── Preview ── */
+#previewBox{display:none;margin-top:16px;border-radius:14px;overflow:hidden;
+  border:2px solid var(--border);position:relative;background:#000;
+  transition:border-color .3s,box-shadow .3s;}
+#previewBox.real{border-color:var(--real);box-shadow:0 0 0 2px rgba(0,196,140,0.2);}
+#previewBox.fake{border-color:var(--fake);box-shadow:0 0 0 2px rgba(255,46,122,0.2);}
+#previewBox.uncertain{border-color:var(--uncertain);box-shadow:0 0 0 2px rgba(255,170,0,0.2);}
+#previewImg{width:100%;max-height:260px;object-fit:contain;display:block;}
+#previewVideo{width:100%;max-height:260px;display:block;}
+#previewOverlay{position:absolute;top:10px;right:10px;padding:5px 14px;border-radius:100px;
+  font-size:0.8rem;font-weight:700;backdrop-filter:blur(8px);display:none;}
+#previewOverlay.real{background:rgba(0,196,140,0.85);color:#0A0F1E;}
+#previewOverlay.fake{background:rgba(255,46,122,0.85);color:#fff;}
+#previewOverlay.uncertain{background:rgba(255,170,0,0.85);color:#0A0F1E;}
+
+/* File info bar */
+#fileInfoBar{display:none;margin-top:10px;padding:10px 14px;background:var(--bg-primary);
+  border-radius:10px;border:1px solid var(--border);font-size:0.8rem;
+  display:flex;align-items:center;gap:10px;color:var(--text-secondary);}
+#fileInfoBar span{color:var(--text);font-weight:600;}
+
+/* URL mode */
+.url-row{display:flex;gap:8px;margin-top:8px;}
+.url-input{flex:1;padding:10px 14px;background:var(--bg-tertiary);border:1px solid var(--border);
+  border-radius:10px;color:var(--text);font-size:0.85rem;outline:none;transition:border-color .2s;}
+.url-input:focus{border-color:var(--accent-cyan);}
+.btn-go{padding:10px 20px;background:var(--accent-cyan);color:#0A0F1E;border:none;
+  border-radius:10px;font-weight:700;font-size:0.85rem;cursor:pointer;white-space:nowrap;}
+.btn-go:hover{opacity:.85;}
+
+/* Analyze button */
+#analyzeBtn{display:none;width:100%;margin-top:14px;padding:13px;
+  background:linear-gradient(135deg,var(--accent-cyan),var(--accent-purple));
+  color:#fff;border:none;border-radius:12px;font-size:0.95rem;font-weight:700;
+  cursor:pointer;letter-spacing:.3px;transition:opacity .2s;}
+#analyzeBtn:hover{opacity:.88;}
+
+/* ── Result Panel ── */
+#resultPanel{display:none;}
+
+.verdict-card{border-radius:20px;padding:24px;border:1px solid var(--border);
+  transition:background .4s,border-color .4s,box-shadow .4s;}
+.verdict-card.real{background:var(--gradient-real);border-color:var(--real);
+  box-shadow:0 4px 30px rgba(0,196,140,0.12);}
+.verdict-card.fake{background:var(--gradient-fake);border-color:var(--fake);
+  box-shadow:0 4px 30px rgba(255,46,122,0.12);}
+.verdict-card.uncertain{background:var(--gradient-uncertain);border-color:var(--uncertain);
+  box-shadow:0 4px 30px rgba(255,170,0,0.12);}
+
+/* Verdict header */
+.verdict-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}
+.verdict-badge{display:inline-block;padding:5px 16px;border-radius:100px;font-size:1rem;
+  font-weight:700;letter-spacing:.5px;}
+.verdict-badge.real{background:var(--real);color:#0A0F1E;}
+.verdict-badge.fake{background:var(--fake);color:#fff;}
+.verdict-badge.uncertain{background:var(--uncertain);color:#0A0F1E;}
+
+/* Confidence meter */
+.conf-label-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.conf-label{font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);}
+.conf-value{font-size:2rem;font-weight:700;}
+.conf-value.real{color:var(--real);}
+.conf-value.fake{color:var(--fake);}
+.conf-value.uncertain{color:var(--uncertain);}
+
+.conf-meter{background:var(--bg-tertiary);border-radius:100px;height:8px;overflow:hidden;margin:8px 0 4px;}
+.conf-fill{height:100%;border-radius:100px;transition:width .8s cubic-bezier(.4,0,.2,1);
+  background:linear-gradient(90deg,var(--fake) 0%,var(--uncertain) 50%,var(--real) 100%);}
+.conf-tier{font-size:0.75rem;color:var(--text-muted);}
+
+/* Score breakdown */
+.scores-title{font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;
+  color:var(--text-muted);margin:18px 0 10px;}
+.model-row{display:grid;grid-template-columns:130px 1fr 56px;align-items:center;
+  gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);}
+.model-row:last-child{border-bottom:none;}
+.model-name{font-size:0.78rem;color:var(--text-secondary);}
+.model-bar{height:5px;background:var(--bg-tertiary);border-radius:3px;overflow:hidden;}
+.model-bar-fill{height:100%;border-radius:3px;
+  background:linear-gradient(90deg,var(--accent-cyan),var(--accent-purple));
+  transition:width .7s ease;}
+.model-score{font-size:0.82rem;font-weight:600;text-align:right;}
+.model-score.fake-score{color:var(--fake);}
+.model-score.real-score{color:var(--real);}
+
+/* Signal pills */
+.signal-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}
+.sig-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;
+  border-radius:20px;font-size:0.78rem;background:var(--bg-tertiary);color:var(--text-secondary);}
+.sig-pill.fake-score{background:rgba(255,46,122,0.12);color:var(--fake);}
+.sig-pill.real-score{background:rgba(0,196,140,0.12);color:var(--real);}
+
+/* Meta row */
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;padding-top:14px;
+  border-top:1px solid var(--border);}
+.meta-chip{font-size:0.75rem;padding:4px 10px;border-radius:8px;
+  background:var(--bg-tertiary);color:var(--text-muted);}
+.meta-chip strong{color:var(--text-secondary);}
+
+/* Votes */
+.votes-row{display:flex;gap:10px;margin-top:14px;}
+.vote-box{flex:1;padding:10px;border-radius:12px;text-align:center;border:1px solid var(--border);
+  background:var(--bg-tertiary);}
+.vote-count{font-size:1.4rem;font-weight:700;}
+.vote-count.fake{color:var(--fake);}
+.vote-count.real{color:var(--real);}
+.vote-label{font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;}
+
+/* Needs review banner */
+.review-banner{margin-top:14px;padding:10px 14px;border-radius:10px;
+  background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);
+  color:var(--uncertain);font-size:0.8rem;display:flex;align-items:center;gap:8px;}
+
+/* Reset btn */
+.btn-reset{display:block;width:100%;margin-top:14px;padding:11px;text-align:center;
+  background:var(--bg-tertiary);border:1px solid var(--border);border-radius:12px;
+  color:var(--text-secondary);font-size:0.85rem;cursor:pointer;transition:all .2s;}
+.btn-reset:hover{border-color:var(--accent-cyan);color:var(--accent-cyan);}
+
+/* ── Progress ── */
+.progress-section{display:none;background:var(--bg-secondary);border:1px solid var(--border);
+  border-radius:20px;padding:28px;text-align:center;}
+.progress-section.visible{display:block;}
+.prog-title{font-size:1rem;font-weight:600;margin-bottom:18px;color:var(--accent-cyan);}
+.prog-bar-bg{height:6px;background:var(--border);border-radius:100px;overflow:hidden;margin-bottom:16px;}
+.prog-bar-fill{height:100%;border-radius:100px;width:0%;
+  background:linear-gradient(90deg,var(--accent-cyan),var(--accent-purple));
+  transition:width .4s ease;}
+.prog-steps{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;}
+.prog-step{font-size:0.75rem;padding:4px 12px;border-radius:100px;
+  background:var(--bg-tertiary);color:var(--text-muted);border:1px solid var(--border);}
+.prog-step.done{background:rgba(0,229,255,0.1);color:var(--accent-cyan);border-color:var(--accent-cyan);}
+.prog-step.active{background:rgba(123,46,218,0.2);color:#b07cff;border-color:var(--accent-purple);
+  animation:pulse .8s infinite alternate;}
+@keyframes pulse{from{opacity:1}to{opacity:.5}}
+
+/* ── Info panel ── */
+.info-panel{background:var(--bg-secondary);border:1px solid var(--border);border-radius:20px;padding:24px;}
+.model-info-card{background:var(--bg-tertiary);border-radius:14px;padding:16px;margin-bottom:12px;
+  border:1px solid var(--border);}
+.model-info-card h3{font-size:0.85rem;font-weight:700;margin-bottom:4px;color:var(--accent-cyan);}
+.model-info-card p{font-size:0.75rem;color:var(--text-muted);}
+.acc-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:0.72rem;font-weight:700;
+  background:rgba(0,196,140,0.15);color:var(--real);margin-left:8px;}
+.w-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:0.72rem;font-weight:700;
+  background:rgba(0,229,255,0.1);color:var(--accent-cyan);margin-left:4px;}
+
+/* ── Footer ── */
+footer{margin-top:40px;padding:20px 0;border-top:1px solid var(--border);
+  text-align:center;font-size:0.75rem;color:var(--text-muted);}
+
+/* Frame chart */
+.frame-chart{display:flex;align-items:flex-end;gap:2px;height:60px;margin-top:8px;}
+.frame-bar{flex:1;border-radius:3px 3px 0 0;min-height:4px;transition:height .3s;}
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- Header -->
+<header>
+  <div class="header-inner">
+    <div class="logo">
+      <div class="logo-icon">🔍</div>
+      <div class="logo-text">
+        <h1>Deep<span>Fake</span> Detector</h1>
+        <p>AI-Powered Media Authenticity Forensics</p>
+      </div>
+    </div>
+    <nav class="nav">
+      <button class="tab active" onclick="switchTab('upload')">Upload</button>
+      <button class="tab" onclick="switchTab('url')">URL</button>
+      <button class="tab" onclick="switchTab('info')">Models</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<!-- Upload Tab -->
+<div id="tab-upload">
+  <div class="main-grid">
+
+    <!-- Left: Upload panel -->
+    <div>
+      <div class="panel">
+        <div class="panel-title">Analyze Media</div>
+
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="fileInput" accept="image/*,video/*">
+          <div class="dz-icon">📁</div>
+          <div class="dz-title">Drop image or video here</div>
+          <div class="dz-sub">or click to browse — analysis starts automatically</div>
+          <div class="dz-types">
+            <span class="dz-badge">JPG</span><span class="dz-badge">PNG</span>
+            <span class="dz-badge">WEBP</span><span class="dz-badge">MP4</span>
+            <span class="dz-badge">AVI</span><span class="dz-badge">MOV</span>
+          </div>
+        </div>
+
+        <!-- Preview -->
+        <div id="previewBox">
+          <img id="previewImg" style="display:none">
+          <video id="previewVideo" controls style="display:none"></video>
+          <div id="previewOverlay"></div>
+        </div>
+
+        <!-- File info -->
+        <div id="fileInfoBar" style="display:none">
+          <span id="fileNameSpan"></span>
+          <span id="fileSizeSpan" style="color:var(--text-muted)"></span>
+          <span id="fileDimsSpan" style="color:var(--text-muted);margin-left:auto;"></span>
+        </div>
+
+        <button id="analyzeBtn" style="display:none"></button>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress-section" id="progressSection" style="margin-top:16px;">
+        <div class="prog-title" id="progTitle">Analyzing…</div>
+        <div class="prog-bar-bg"><div class="prog-bar-fill" id="progFill"></div></div>
+        <div class="prog-steps" id="progSteps"></div>
+      </div>
+    </div>
+
+    <!-- Right: Result panel -->
+    <div id="resultPanel">
+      <div class="verdict-card" id="verdictCard">
+
+        <!-- Top: badge + confidence -->
+        <div class="verdict-top">
+          <div>
+            <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px;">Verdict</div>
+            <span class="verdict-badge" id="verdictBadge">—</span>
+          </div>
+          <div style="text-align:right">
+            <div class="conf-label">Confidence</div>
+            <div class="conf-value" id="confValue">—</div>
+            <div class="conf-tier" id="confTier"></div>
+          </div>
+        </div>
+
+        <!-- Confidence meter -->
+        <div class="conf-meter"><div class="conf-fill" id="confFill" style="width:50%"></div></div>
+        <div style="font-size:0.72rem;color:var(--text-muted);text-align:right;margin-bottom:4px;" id="fakePct"></div>
+
+        <!-- Model votes -->
+        <div class="votes-row" id="votesRow" style="display:none">
+          <div class="vote-box">
+            <div class="vote-count fake" id="vFake">0</div>
+            <div class="vote-label">Fake Votes</div>
+          </div>
+          <div class="vote-box">
+            <div class="vote-count real" id="vReal">0</div>
+            <div class="vote-label">Real Votes</div>
+          </div>
+        </div>
+
+        <!-- Per-model scores -->
+        <div class="scores-title">Model Scores</div>
+        <div id="modelScores"></div>
+
+        <!-- Signal analysis pills -->
+        <div class="scores-title" style="margin-top:14px;">Signal Analysis</div>
+        <div class="signal-row" id="signalRow"></div>
+
+        <!-- Frame chart for video -->
+        <div id="frameChartSection" style="display:none;margin-top:16px;">
+          <div class="scores-title">Per-Frame Fake Probability</div>
+          <div class="frame-chart" id="frameChart"></div>
+        </div>
+
+        <!-- Needs review -->
+        <div class="review-banner" id="reviewBanner" style="display:none">
+          ⚠️ Result is borderline — manual review recommended
+        </div>
+
+        <!-- Meta chips -->
+        <div class="meta-row" id="metaRow"></div>
+      </div>
+
+      <button class="btn-reset" onclick="resetUI()">↩ Analyze Another File</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- URL Tab -->
+<div id="tab-url" style="display:none">
+  <div class="panel" style="max-width:600px">
+    <div class="panel-title">Analyze from URL</div>
+    <div class="url-row">
+      <input class="url-input" id="urlInput" type="url" placeholder="https://example.com/image.jpg">
+      <button class="btn-go" onclick="analyzeUrl()">Analyze</button>
+    </div>
+    <p style="font-size:0.75rem;color:var(--text-muted);margin-top:10px;">Image URLs only. Video URLs not supported via URL mode.</p>
+  </div>
+</div>
+
+<!-- Info Tab -->
+<div id="tab-info" style="display:none">
+  <div class="info-panel">
+    <div style="font-size:0.85rem;font-weight:700;margin-bottom:16px;color:var(--accent-cyan);">🤗 Pretrained HuggingFace Models</div>
+
+    <div class="model-info-card">
+      <h3>ViT Deep-Fake-Detector-v2 <span class="acc-badge">92.1%</span><span class="w-badge">33%</span></h3>
+      <p>prithivMLmods/Deep-Fake-Detector-v2-Model · Fine-tuned on 56k images · id2label: {0:Realism, 1:Deepfake}</p>
+    </div>
+    <div class="model-info-card">
+      <h3>SigLIP deepfake-detector-v1 <span class="acc-badge">94.4%</span><span class="w-badge">34%</span></h3>
+      <p>prithivMLmods/deepfake-detector-model-v1 · Fine-tuned on 20k images · id2label: {0:Fake, 1:Real}</p>
+    </div>
+    <div class="model-info-card">
+      <h3>ViT Deepfake Detection <span class="acc-badge">98.7%</span><span class="w-badge">33%</span></h3>
+      <p>Wvolf/ViT_Deepfake_Detection · id2label: {0:Real, 1:Fake} · Temperature scaled T=2.5</p>
+    </div>
+
+    <div style="margin-top:20px;display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:0.82rem;">
+      <div style="padding:12px;background:var(--bg-tertiary);border-radius:12px;border:1px solid var(--border);">
+        <div style="color:var(--text-muted);margin-bottom:4px;">Image Analysis</div>
+        <strong>1–4 seconds</strong>
+      </div>
+      <div style="padding:12px;background:var(--bg-tertiary);border-radius:12px;border:1px solid var(--border);">
+        <div style="color:var(--text-muted);margin-bottom:4px;">Video (20 frames)</div>
+        <strong>10–25 seconds</strong>
+      </div>
+      <div style="padding:12px;background:var(--bg-tertiary);border-radius:12px;border:1px solid var(--border);">
+        <div style="color:var(--text-muted);margin-bottom:4px;">Model download</div>
+        <strong>~400MB (once)</strong>
+      </div>
+      <div style="padding:12px;background:var(--bg-tertiary);border-radius:12px;border:1px solid var(--border);">
+        <div style="color:var(--text-muted);margin-bottom:4px;">Temperature scaling</div>
+        <strong>T = 2.5</strong>
+      </div>
+    </div>
+
+    <div style="margin-top:16px;">
+      <button onclick="checkModelStatus()" style="padding:9px 20px;background:var(--bg-tertiary);
+        border:1px solid var(--border);border-radius:10px;color:var(--text-secondary);
+        cursor:pointer;font-size:0.82rem;">Check Model Status</button>
+      <div id="modelStatusOut" style="margin-top:12px;font-size:0.8rem;"></div>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<footer>DeepFake Detector · ViT + SigLIP Ensemble · Temperature Scaled · CPU Inference</footer>
+</div>
+
+<script>
+/* ── Tab switching ── */
+function switchTab(t) {
+  ['upload','url','info'].forEach(id => {
+    document.getElementById('tab-'+id).style.display = id===t ? '' : 'none';
+  });
+  document.querySelectorAll('.tab').forEach((el,i) => {
+    el.classList.toggle('active', ['upload','url','info'][i]===t);
+  });
+}
+
+/* ── Dropzone setup — single clean event handler ── */
+const dz = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+
+// Click on dropzone → open file picker (only if not clicking directly on input)
+dz.addEventListener('click', e => {
+  if (e.target !== fileInput) fileInput.click();
+});
+
+// Drag & drop
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault();
+  dz.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) onFileSelected(f);
+});
+
+// File input change → auto analyze immediately, no second click needed
+fileInput.addEventListener('change', () => {
+  const f = fileInput.files[0];
+  if (f) onFileSelected(f);
+});
+
+let selectedFile = null;
+
+function onFileSelected(file) {
+  if (!file) return;
+  selectedFile = file;
+
+  // Show preview immediately
+  const pb = document.getElementById('previewBox');
+  const img = document.getElementById('previewImg');
+  const vid = document.getElementById('previewVideo');
+  pb.style.display = 'block';
+  pb.className = '';
+  document.getElementById('previewOverlay').style.display = 'none';
+
+  if (file.type.startsWith('image/')) {
+    img.style.display = 'block'; vid.style.display = 'none';
+    img.src = URL.createObjectURL(file);
+    img.onload = () => {
+      document.getElementById('fileDimsSpan').textContent = img.naturalWidth + '×' + img.naturalHeight;
+    };
+  } else {
+    vid.style.display = 'block'; img.style.display = 'none';
+    vid.src = URL.createObjectURL(file);
+  }
+
+  // Show file info bar
+  const bar = document.getElementById('fileInfoBar');
+  bar.style.display = 'flex';
+  document.getElementById('fileNameSpan').textContent = file.name;
+  document.getElementById('fileSizeSpan').textContent = formatSize(file.size);
+
+  // Hide old results
+  document.getElementById('resultPanel').style.display = 'none';
+
+  // Auto-start analysis immediately — no button needed
+  runAnalysis();
+}
+
+function formatSize(b) {
+  if (b < 1024) return b+'B';
+  if (b < 1024*1024) return (b/1024).toFixed(1)+'KB';
+  return (b/1024/1024).toFixed(1)+'MB';
+}
+
+/* ── Analysis ── */
+const IMG_STEPS = ['Loading Models','Preprocessing','ViT v2','SigLIP','ViT Wvolf','Signal Analysis','Ensemble'];
+const VID_STEPS = ['Loading Models','Extracting Frames','Face Detection','Features','AE Analysis','VAE','Temporal','Ensemble'];
+
+function runAnalysis() {
+  if (!selectedFile) return;
+  const isVid = selectedFile.type.startsWith('video/');
+  const steps = isVid ? VID_STEPS : IMG_STEPS;
+
+  document.getElementById('resultPanel').style.display = 'none';
+  startProgress(steps, isVid ? 25000 : 6000);
+
+  const fd = new FormData();
+  fd.append('file', selectedFile);
+
+  fetch('/api/detect', {method:'POST', body:fd})
+    .then(r=>r.json())
+    .then(data => { stopProgress(); displayResult(data); })
+    .catch(err => { stopProgress(); alert('Error: '+err.message); });
+}
+
+function analyzeUrl() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) return;
+  startProgress(IMG_STEPS, 6000);
+  fetch('/api/detect/url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})})
+    .then(r=>r.json())
+    .then(data=>{stopProgress();displayResult(data);})
+    .catch(err=>{stopProgress();alert('Error: '+err.message);});
+}
+
+/* ── Progress animation ── */
+let _progTimer = null;
+function startProgress(steps, dur) {
+  const ps = document.getElementById('progressSection');
+  ps.style.display = 'block';
+  document.getElementById('progTitle').textContent = 'Analyzing…';
+  const stepsEl = document.getElementById('progSteps');
+  stepsEl.innerHTML = steps.map((s,i)=>`<span class="prog-step" id="ps${i}">${s}</span>`).join('');
+
+  let pct = 0, si = 0;
+  const perStep = dur / steps.length;
+  document.getElementById('progFill').style.width = '0%';
+
+  _progTimer = setInterval(() => {
+    pct = Math.min(pct + (100/steps.length), 99);
+    document.getElementById('progFill').style.width = pct+'%';
+    document.querySelectorAll('.prog-step').forEach((el,i)=>{
+      if(i < si) el.className='prog-step done';
+      else if(i === si) el.className='prog-step active';
+      else el.className='prog-step';
+    });
+    si = Math.min(si+1, steps.length-1);
+  }, perStep);
+}
+function stopProgress() {
+  clearInterval(_progTimer);
+  document.getElementById('progFill').style.width = '100%';
+  setTimeout(()=>{ document.getElementById('progressSection').style.display='none'; }, 400);
+}
+
+/* ── Display result ── */
+function displayResult(data) {
+  const isErr = !!(data.error && !data.prediction || data.prediction==='REAL' && data.confidence===0.5 && data.error);
+  const pred = data.prediction || 'REAL';
+  const conf = data.confidence || 0.5;
+  const fake_p = data.fake_probability || 0.5;
+
+  // Determine tier
+  let tier = pred==='FAKE' ? 'fake' : 'real';
+  if (conf < 0.65) tier = 'uncertain';
+
+  // Update preview box border + overlay
+  const pb = document.getElementById('previewBox');
+  if (pb.style.display !== 'none') {
+    pb.className = tier;
+    const ov = document.getElementById('previewOverlay');
+    ov.style.display = 'block';
+    ov.className = tier;
+    ov.textContent = pred + ' ' + Math.round(conf*100) + '%';
+  }
+
+  // Show result panel
+  document.getElementById('resultPanel').style.display = 'block';
+
+  // Verdict card color
+  const vc = document.getElementById('verdictCard');
+  vc.className = 'verdict-card ' + tier;
+
+  // Badge
+  const badge = document.getElementById('verdictBadge');
+  badge.textContent = pred;
+  badge.className = 'verdict-badge ' + tier;
+
+  // Confidence value
+  const cv = document.getElementById('confValue');
+  cv.textContent = Math.round(conf*100) + '%';
+  cv.className = 'conf-value ' + tier;
+
+  // Confidence tier label
+  document.getElementById('confTier').textContent =
+    data.confidence_label || (conf>=0.85 ? 'High confidence' : conf>=0.65 ? 'Medium confidence' : 'Uncertain');
+
+  // Meter — fill width = fake_probability
+  document.getElementById('confFill').style.width = (fake_p*100).toFixed(1) + '%';
+  document.getElementById('fakePct').textContent = (fake_p*100).toFixed(1) + '% fake probability';
+
+  // Votes
+  if (data.votes) {
+    document.getElementById('votesRow').style.display = 'flex';
+    document.getElementById('vFake').textContent = data.votes.fake;
+    document.getElementById('vReal').textContent = data.votes.real;
+  }
+
+  // Per-model scores
+  const ms = document.getElementById('modelScores');
+  ms.innerHTML = '';
+  const modelLabels = {
+    vit_v2: 'ViT v2 (92.1%)',
+    siglip_v1: 'SigLIP v1 (94.4%)',
+    vit_wvolf: 'ViT Wvolf (98.7%)',
+  };
+  if (data.model_details) {
+    Object.entries(data.model_details).forEach(([k, v]) => {
+      const fp = v.fake_probability;
+      const lbl = fp >= 0.5 ? 'fake-score' : 'real-score';
+      ms.innerHTML += `<div class="model-row">
+        <div class="model-name">${modelLabels[k]||k}</div>
+        <div class="model-bar"><div class="model-bar-fill" style="width:${(fp*100).toFixed(0)}%"></div></div>
+        <div class="model-score ${lbl}">${(fp*100).toFixed(0)}%</div>
+      </div>`;
+    });
+  } else if (data.scores) {
+    // Fallback if model_details missing
+    ['vit_v2','siglip_v1','vit_wvolf'].forEach(k => {
+      if (data.scores[k] !== undefined) {
+        const fp = data.scores[k];
+        const lbl = fp >= 0.5 ? 'fake-score' : 'real-score';
+        ms.innerHTML += `<div class="model-row">
+          <div class="model-name">${modelLabels[k]||k}</div>
+          <div class="model-bar"><div class="model-bar-fill" style="width:${(fp*100).toFixed(0)}%"></div></div>
+          <div class="model-score ${lbl}">${(fp*100).toFixed(0)}%</div>
+        </div>`;
+      }
+    });
+  }
+
+  // Signal analysis pills
+  const sr = document.getElementById('signalRow');
+  sr.innerHTML = '';
+  const signalMap = {
+    noise_analysis: '🔊 Noise',
+    compression_artifacts: '📦 Compression',
+    ela_score: '🔬 ELA',
+  };
+  if (data.scores) {
+    Object.entries(signalMap).forEach(([k, label]) => {
+      if (data.scores[k] !== undefined) {
+        const v = data.scores[k];
+        const cls = v >= 0.5 ? 'fake-score' : 'real-score';
+        sr.innerHTML += `<span class="sig-pill ${cls}">${label} ${(v*100).toFixed(0)}%</span>`;
+      }
+    });
+  }
+
+  // Frame chart (video)
+  if (data.frame_scores && data.frame_scores.length > 0) {
+    document.getElementById('frameChartSection').style.display = 'block';
+    const fc = document.getElementById('frameChart');
+    fc.innerHTML = data.frame_scores.map(s => {
+      const h = Math.max(4, Math.round(s*60));
+      const c = s>=0.5 ? 'var(--fake)' : 'var(--real)';
+      return `<div class="frame-bar" style="height:${h}px;background:${c};flex:1;" title="${(s*100).toFixed(0)}%"></div>`;
+    }).join('');
+  }
+
+  // Needs review
+  document.getElementById('reviewBanner').style.display = data.needs_review ? 'flex' : 'none';
+
+  // Meta chips
+  const mr = document.getElementById('metaRow');
+  mr.innerHTML = '';
+  const chips = [];
+  if (data.file_type) chips.push(`<strong>${data.file_type.toUpperCase()}</strong>`);
+  if (data.image_size && data.image_size!=='unknown') chips.push(`📐 <strong>${data.image_size}</strong>`);
+  if (data.analysis_time) chips.push(`⏱ <strong>${data.analysis_time}s</strong>`);
+  if (data.models_used) chips.push(`🤖 <strong>${data.models_used} models</strong>`);
+  if (data.temperature) chips.push(`🌡 T=<strong>${data.temperature}</strong>`);
+  if (data.frames_analyzed) chips.push(`🎞 <strong>${data.frames_analyzed} frames</strong>`);
+  if (isErr) chips.push(`<span style="color:var(--fake)">⚠️ ${data.error}</span>`);
+  mr.innerHTML = chips.map(c=>`<div class="meta-chip">${c}</div>`).join('');
+}
+
+function resetUI() {
+  selectedFile = null;
+  document.getElementById('resultPanel').style.display = 'none';
+  document.getElementById('previewBox').style.display = 'none';
+  document.getElementById('fileInfoBar').style.display = 'none';
+  document.getElementById('previewImg').src = '';
+  document.getElementById('previewVideo').src = '';
+  // Reset file input value so same file can be selected again
+  fileInput.value = '';
+}
+
+function checkModelStatus() {
+  const out = document.getElementById('modelStatusOut');
+  out.textContent = 'Checking…';
+  fetch('/api/models/status')
+    .then(r=>r.json())
+    .then(d=>{
+      out.innerHTML = Object.entries(d.models).map(([k,m])=>
+        `<div style="margin-bottom:6px;padding:8px;background:var(--bg-primary);border-radius:8px;border:1px solid var(--border)">
+          <span style="color:${m.loaded?'var(--real)':'var(--fake)'};">${m.loaded?'✅':'❌'}</span>
+          <strong style="margin-left:6px;">${k}</strong>
+          <span style="color:var(--text-muted);font-size:0.75rem;margin-left:6px;">${m.description||''}</span>
+          <span style="float:right;color:var(--real);font-size:0.75rem;">${(m.accuracy*100).toFixed(1)}%</span>
+        </div>`
+      ).join('') + `<div style="margin-top:8px;color:var(--text-muted);font-size:0.75rem;">${d.total_loaded}/${d.total_available} loaded</div>`;
+    })
+    .catch(()=>{ out.textContent = 'Could not reach server.'; });
+}
+</script>
+</body>
+</html>
