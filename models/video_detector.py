@@ -430,7 +430,7 @@ class VideoDetector:
                     'image_check':      round(float(image_check_score),  4),
                     'ensemble_final':   round(float(final_score),        4),
                 },
-                'per_frame_scores':  [round(s, 4) for s in frame_combined],
+                'frame_scores':  [round(s, 4) for s in frame_combined],
                 'ensemble_weights':  VIDEO_ENSEMBLE_WEIGHTS,
                 'model': 'GenConViT v2 (ConvNeXt + Swin + AE + VAE + Image-Check)',
                 'error': None,

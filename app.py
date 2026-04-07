@@ -119,7 +119,7 @@ def health():
         'improvements': [
             '4-model neural ensemble (ViT×3 + SigLIP)',
             'Test-Time Augmentation (TTA, 3 crops)',
-            'Temperature-scaled softmax (T=0.7)',
+            'Temperature-scaled softmax (T=2.5)',
             'Continuous signal scoring (vs discrete buckets)',
             'Multi-quality ELA (3 quality levels)',
             'Gradient consistency analysis',
@@ -277,6 +277,7 @@ def detect_url():
 def model_info():
     """Return information about loaded models."""
     from models.model_manager import ModelManager, PRETRAINED_ENSEMBLE_WEIGHTS
+    from models.image_detector import CALIBRATED_WEIGHTS
     manager = ModelManager()
     return jsonify({
         'loaded_models': manager.get_loaded_models(),
@@ -285,10 +286,9 @@ def model_info():
         'video_model': 'GenConViT v2 (ConvNeXt + Swin + AE + VAE + Image-Check, 32 frames)',
         'device': 'CPU',
         'image_neural_models': {
-            'vit_v2':      {'accuracy': '92.1%', 'weight': PRETRAINED_ENSEMBLE_WEIGHTS.get('vit_v2', 0)},
-            'siglip_v1':   {'accuracy': '94.4%', 'weight': PRETRAINED_ENSEMBLE_WEIGHTS.get('siglip_v1', 0)},
-            'vit_wvolf':   {'accuracy': '98.7%', 'weight': PRETRAINED_ENSEMBLE_WEIGHTS.get('vit_wvolf', 0)},
-            'vit_dima806': {'accuracy': '99%+',  'weight': PRETRAINED_ENSEMBLE_WEIGHTS.get('vit_dima806', 0)},
+            'vit_v2':      {'accuracy': '92.1%', 'weight': CALIBRATED_WEIGHTS.get('vit_v2', 0)},
+            'siglip_v1':   {'accuracy': '94.4%', 'weight': CALIBRATED_WEIGHTS.get('siglip_v1', 0)},
+            'vit_wvolf':   {'accuracy': '98.7%', 'weight': CALIBRATED_WEIGHTS.get('vit_wvolf', 0)},
         },
         'image_ensemble_weights': {
             'neural_models': 0.70,
@@ -297,7 +297,7 @@ def model_info():
             'ela_score': 0.07,
             'frequency_analysis': 0.05,
         },
-        'image_tta': {'crops': 3, 'temperature': 0.7},
+        'image_tta': {'crops': 3, 'temperature': 2.5},
         'video_ensemble_weights': {
             'autoencoder_ed': 0.40,
             'vae_pathway': 0.30,
@@ -305,6 +305,30 @@ def model_info():
             'image_check': 0.10,
         },
         'video_frames': 32,
+    })
+
+
+@app.route('/api/models/status', methods=['GET'])
+def model_status():
+    """Detailed status for each model for the frontend UI."""
+    from models.model_manager import ModelManager, HF_MODELS
+    manager = ModelManager()
+    status = manager.get_load_status()
+    loaded_keys = manager.get_loaded_models()
+    
+    models_out = {}
+    for key, cfg in HF_MODELS.items():
+        models_out[key] = {
+            'loaded': key in loaded_keys and status.get(key) == 'loaded',
+            'description': cfg.get('description', ''),
+            'accuracy': cfg.get('accuracy', 0),
+            'status': status.get(key, 'not_loaded')
+        }
+        
+    return jsonify({
+        'models': models_out,
+        'total_loaded': len(loaded_keys),
+        'total_available': len(HF_MODELS)
     })
 
 

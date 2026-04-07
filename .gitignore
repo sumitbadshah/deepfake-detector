@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*$py.class
+uploads/
+weights/*.pth
+logs/
+.venv/
+env/
+.env
+.DS_Store
